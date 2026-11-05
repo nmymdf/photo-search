@@ -26,3 +26,12 @@ for k in ("pexels", "unsplash", "pixabay"):
     except requests.HTTPError as e:
         print(k, "bad key ->", e.response.status_code)
 print("region", ps.region_of("Hotel in Tokyo"), ps.region_of("Taipei 101"), ps.region_of("Paris"))
+import tempfile
+d = tempfile.mkdtemp()
+for it in ps.src_tw("日月潭", 1, "")[:3] + ps.src_commons("hotel Taiwan", 1, "")[:2]:
+    try:
+        name, row = ps.download_one(it, d, {})
+        import os
+        print("DL OK", it.source, name, os.path.getsize(os.path.join(d, name)))
+    except Exception as e:
+        print("DL FAIL", it.source, e, it.full)

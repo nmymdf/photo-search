@@ -26,10 +26,12 @@ import requests
 from PIL import Image, ImageOps, ImageDraw
 
 APP_NAME = "經典圖庫搜尋"
-VERSION = "v0.3.1"
+VERSION = "v0.3.2"
 AUTHOR = "作者:ArchieKUO"
 GOLD = "#C9A227"
-UA = {"User-Agent": "ClassicPhotoSearch/0.3.1 (personal desktop app)"}
+UA = {"User-Agent": "ClassicPhotoSearch/0.3.2 (personal desktop app)"}
+IMG_UA = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                        "(KHTML, like Gecko) Chrome/130.0 Safari/537.36 ClassicPhotoSearch/0.3.2"}
 PER_FETCH = 16
 COLS = 4
 MAX_ITEMS = 320
@@ -88,7 +90,7 @@ def data_dir():
 
 
 def default_download_dir():
-    return str(Path.home() / "Pictures" / "經典圖庫")
+    return str(Path.home() / "Downloads" / "經典圖庫")
 
 
 def strip_html(s):
@@ -423,6 +425,35 @@ def translate(text, sl, tl):
     if not s:
         raise RuntimeError("翻譯失敗")
     return s
+
+
+def download_one(it, d, keys):
+    """下載一張圖到資料夾 d，回傳 (檔名, 出處紀錄列)。失敗會丟出例外。"""
+    if it.full == "mock":
+        data, ext = b"mock", ".jpg"
+    else:
+        if it.source == "unsplash" and it.dl_ping and keys.get("unsplash"):
+            try:
+                requests.get(it.dl_ping, headers={
+                    **UA, "Authorization": f"Client-ID {keys['unsplash']}"}, timeout=15)
+            except Exception:
+                pass
+        r = requests.get(it.full, headers=IMG_UA, timeout=90)
+        r.raise_for_status()
+        data = r.content
+        if len(data) < 500:
+            raise RuntimeError("檔案太小，可能不是圖片")
+        ct = r.headers.get("Content-Type", "")
+        ext = ".png" if "png" in ct else ".webp" if "webp" in ct else ".jpg"
+    safe = re.sub(r'[\\/:*?"<>|\r\n\t]', "_", it.title)[:50].strip(" .") or "image"
+    ident = re.sub(r"[^0-9A-Za-z_-]", "", it.key.split(":", 1)[1])[-16:]
+    fn = Path(d) / f"{safe}_{SRC_NAME.get(it.source, it.source)}_{ident}{ext}"
+    fn.write_bytes(data)
+    credit = it.creator or ""
+    if it.source == "tw":
+        credit = "交通部觀光署（政府資料開放授權條款第1版）"
+    return fn.name, [fn.name, it.title, SRC_NAME.get(it.source, it.source),
+                     it.lic, credit, it.page or ""]
 
 
 # ---------------------------------------------------------------- 主程式
@@ -923,7 +954,7 @@ class App:
                     dr.polygon([(0, 400), (200, 190), (360, 400)], fill="#6F7F63")
                     dr.polygon([(230, 400), (420, 230), (600, 400)], fill="#58684F")
                 else:
-                    r = requests.get(it.thumb, headers=UA, timeout=25)
+                    r = requests.get(it.thumb, headers=IMG_UA, timeout=25)
                     r.raise_for_status()
                     im = Image.open(io.BytesIO(r.content)).convert("RGB")
                 im.thumbnail((700, 700))
@@ -952,6 +983,8 @@ class App:
                     self.merge_results(a, b)
                 elif kind == "status":
                     self.set_status(a)
+                elif kind == "dl_progress":
+                    self.bar_msg(f"下載中 {a} / {b}…", "busy")
                 elif kind == "done_download":
                     self.after_download(a, b)
                 elif kind == "key_ok":
@@ -1212,7 +1245,7 @@ class App:
                 if it.full == "mock":
                     im = self.pil.get(it.key) or Image.new("RGB", (1200, 800), "#8FA9BF")
                 else:
-                    r = requests.get(it.full, headers=UA, timeout=60)
+                    r = requests.get(it.full, headers=IMG_UA, timeout=60)
                     r.raise_for_status()
                     im = Image.open(io.BytesIO(r.content)).convert("RGB")
                 im = im.copy()
@@ -1280,50 +1313,53 @@ class App:
         except Exception:
             webbrowser.open(Path(d).as_uri())
 
+    def bar_msg(self, text, kind="info"):
+        color = {"info": SUB, "ok": OK_TX, "err": DANGER, "busy": ACCENT}[kind]
+        self.more_lbl.configure(text=text, text_color=color,
+                                font=F(16, bold=kind in ("ok", "err", "busy")))
+
     def download_checked(self):
-        self.download_items(list(self.checked.values()))
+        items = list(self.checked.values())
+        if not items and self.current:
+            items = [self.current]
+        self.download_items(items)
 
     def download_items(self, items):
         items = [x for x in items if x]
         if not items:
-            self.set_status("請先勾選要下載的圖片")
+            self.bar_msg("請先勾選照片（照片下方的方框）", "err")
+            self.set_status("請先勾選要下載的照片")
             return
         d = Path(self.folder())
-        d.mkdir(parents=True, exist_ok=True)
-        self.set_status(f"下載中 0 / {len(items)}…")
+        try:
+            d.mkdir(parents=True, exist_ok=True)
+        except Exception as ex:
+            self.bar_msg(f"無法建立下載資料夾：{d}", "err")
+            return
+        self.bar_msg(f"下載中 0 / {len(items)}…", "busy")
         keys = dict(self.keys)
 
         def job():
-            ok, fail, rows = 0, 0, []
-            for n, it in enumerate(items, 1):
+            rows, errors, done = [], [], [0]
+            lock = threading.Lock()
+
+            def one(it):
                 try:
-                    if it.full == "mock":
-                        data, ext = b"mock", ".jpg"
-                    else:
-                        if it.source == "unsplash" and it.dl_ping and keys.get("unsplash"):
-                            try:
-                                requests.get(it.dl_ping, headers={
-                                    **UA, "Authorization": f"Client-ID {keys['unsplash']}"}, timeout=15)
-                            except Exception:
-                                pass
-                        r = requests.get(it.full, headers=UA, timeout=120)
-                        r.raise_for_status()
-                        data = r.content
-                        ct = r.headers.get("Content-Type", "")
-                        ext = ".png" if "png" in ct else ".webp" if "webp" in ct else ".jpg"
-                    safe = re.sub(r'[\\/:*?"<>|\r\n\t]', "_", it.title)[:50].strip() or "image"
-                    ident = re.sub(r"[^0-9A-Za-z_-]", "", it.key.split(":", 1)[1])[-16:]
-                    fn = d / f"{safe}_{SRC_NAME.get(it.source, it.source)}_{ident}{ext}"
-                    fn.write_bytes(data)
-                    credit = it.creator or ""
-                    if it.source == "tw":
-                        credit = "交通部觀光署（政府資料開放授權條款第1版）"
-                    rows.append([fn.name, it.title, SRC_NAME.get(it.source, it.source),
-                                 it.lic, credit, it.page or ""])
-                    ok += 1
-                except Exception:
-                    fail += 1
-                self.q.put(("status", f"下載中 {n} / {len(items)}…", None))
+                    name, row = download_one(it, d, keys)
+                    with lock:
+                        rows.append(row)
+                except Exception as ex:
+                    msg = str(ex)
+                    if isinstance(ex, requests.HTTPError) and ex.response is not None:
+                        msg = f"HTTP {ex.response.status_code}"
+                    with lock:
+                        errors.append((it, msg))
+                with lock:
+                    done[0] += 1
+                    n = done[0]
+                self.q.put(("dl_progress", n, len(items)))
+            with ThreadPoolExecutor(4) as ex:
+                list(ex.map(one, items))
             if rows:
                 credit = d / "出處紀錄.csv"
                 new = not credit.exists()
@@ -1335,20 +1371,42 @@ class App:
                         w.writerows(rows)
                 except Exception:
                     pass
-            self.q.put(("done_download", ok, fail))
+            if errors:
+                try:
+                    with open(data_dir() / "download_errors.log", "a", encoding="utf-8") as f:
+                        for it, msg in errors:
+                            f.write(f"{time.strftime('%Y-%m-%d %H:%M')}\t{it.source}\t{msg}\t{it.full}\n")
+                except Exception:
+                    pass
+            self.q.put(("done_download", len(rows), errors))
         threading.Thread(target=job, daemon=True).start()
 
-    def after_download(self, ok, fail):
+    def after_download(self, ok, errors):
+        fail = len(errors)
+        short_dir = self.folder().replace(str(Path.home()), "").strip("\\/") or self.folder()
+        if ok and not fail:
+            self.bar_msg(f"✓ 已下載 {ok} 張到「{short_dir}」", "ok")
+        elif ok:
+            self.bar_msg(f"已下載 {ok} 張，{fail} 張失敗", "err")
+        else:
+            self.bar_msg(f"下載失敗（{errors[0][1][:30]}）", "err")
         self.set_status(f"下載完成：成功 {ok} 張" + (f"，失敗 {fail} 張" if fail else ""))
         self.uncheck_all()
         if SMOKE:
             return
-        msg = f"已下載 {ok} 張到：\n{self.folder()}"
+        if ok:
+            msg = f"已下載 {ok} 張到：\n{self.folder()}"
+        else:
+            msg = "這次沒有下載成功。"
         if fail:
-            msg += f"\n\n有 {fail} 張下載失敗，可以稍後再試，或按「出處頁」手動下載。"
-        msg += "\n\n每張的來源和授權記在資料夾裡的「出處紀錄.csv」。\n\n要開啟下載資料夾嗎？"
-        if messagebox.askyesno(APP_NAME, msg):
-            self.open_folder()
+            srcs = "、".join(sorted({SRC_NAME.get(it.source, it.source) for it, _ in errors}))
+            msg += f"\n\n有 {fail} 張失敗（來源：{srcs}，原因：{errors[0][1][:60]}）。\n可以稍後再試，或按「出處頁」在瀏覽器下載。"
+        if ok:
+            msg += "\n\n每張的來源和授權記在資料夾裡的「出處紀錄.csv」。\n\n要開啟下載資料夾嗎？"
+            if messagebox.askyesno(APP_NAME, msg):
+                self.open_folder()
+        else:
+            messagebox.showwarning(APP_NAME, msg)
 
 
 def smoke_run(root, app):
@@ -1381,6 +1439,10 @@ def smoke_run(root, app):
         root.after(1500, lambda: (shot("scrolled"), step4()))
 
     def step4():
+        app.download_checked()
+        root.after(1500, lambda: (shot("downloaded"), step4b()))
+
+    def step4b():
         app.show_mode("settings")
         root.after(1000, lambda: (shot("settings"), step5()))
 
