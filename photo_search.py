@@ -669,13 +669,13 @@ class App:
                   ("歐美", [("StockSnap", "stocksnap"), ("Burst", "burst"), ("ISO Republic", "isorepublic")])]
         inner = ctk.CTkFrame(self.sites, fg_color="transparent")
         inner.pack(fill="x", padx=12, pady=10)
-        ctk.CTkLabel(inner, text="用瀏覽器打開，並自動帶入關鍵字：", font=F(15), text_color=SUB
-                     ).pack(side="left", padx=(0, 10))
+        ctk.CTkLabel(inner, text="用瀏覽器打開：", font=F(15), text_color=SUB
+                     ).pack(side="left", padx=(0, 4))
         for gname, items in groups:
             ctk.CTkLabel(inner, text=gname, font=F(15, bold=True), text_color=TX).pack(side="left", padx=(12, 6))
             for label, key in items:
                 self.btn(inner, label, lambda k=key: self.open_site(k), size=15, height=36,
-                         width=0).pack(side="left", padx=3)
+                         width=max(80, int(len(label) * 9 + 30))).pack(side="left", padx=3)
 
         # 內容區
         self.content = ctk.CTkFrame(r, fg_color="transparent")
@@ -769,7 +769,12 @@ class App:
         self.layout_chips()
 
     def build_settings(self, parent):
-        f = ctk.CTkFrame(parent, fg_color=PANEL, corner_radius=14, border_width=1, border_color=LINE)
+        f = ctk.CTkScrollableFrame(parent, fg_color=PANEL, corner_radius=14, border_width=1,
+                                   border_color=LINE, scrollbar_button_color=LINE)
+        try:
+            f._parent_canvas.configure(yscrollincrement=7)
+        except Exception:
+            pass
         f.grid_columnconfigure(1, weight=1)
         ctk.CTkLabel(f, text="設定", font=F(22, bold=True), text_color=TX
                      ).grid(row=0, column=0, columnspan=3, sticky="w", padx=24, pady=(20, 4))
