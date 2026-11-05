@@ -13,23 +13,31 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: pip install requests pillow pyinstaller
+      - run: pip install requests pillow pyinstaller customtkinter
       - name: Test sources
         continue-on-error: true
         env:
           PYTHONIOENCODING: utf-8
         run: python test_sources.py
-      - name: Smoke test UI
+      - name: Smoke test UI (light)
         env:
           PHOTO_MOCK: "1"
           PHOTO_SMOKE: "1"
+          PHOTO_THEME: light
+          PYTHONIOENCODING: utf-8
+        run: python photo_search.py
+      - name: Smoke test UI (dark)
+        env:
+          PHOTO_MOCK: "1"
+          PHOTO_SMOKE: "1"
+          PHOTO_THEME: dark
           PYTHONIOENCODING: utf-8
         run: python photo_search.py
       - name: Build
         shell: bash
         run: |
           VER=$(grep -oP '^VERSION = "\K[^"]+' photo_search.py)
-          pyinstaller --onefile --windowed --icon icon.ico --name "ClassicPhotoSearch_${VER}" photo_search.py
+          pyinstaller --onefile --windowed --collect-data customtkinter --icon icon.ico --name "ClassicPhotoSearch_${VER}" photo_search.py
           ls dist
       - uses: actions/upload-artifact@v4
         with:
@@ -38,7 +46,7 @@ jobs:
       - name: Publish to exe branch
         shell: bash
         run: |
-          mkdir out && cp dist/*.exe out/
+          mkdir out && cp dist/*.exe out/ && cp -r shots out/ || true
           cd out
           git init -q
           git config user.name "github-actions"

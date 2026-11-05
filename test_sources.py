@@ -1,28 +1,31 @@
+import json, requests
 import photo_search as ps
-print("translate:", ps.translate_zh_en("老火車"))
-for k, name, fn, zh, cat in ps.SOURCES:
+print("translate:", ps.translate_zh_en("海邊飯店"))
+for k, name, fn, need, d, x in ps.SOURCES:
+    if need:
+        continue
     try:
-        items = fn("steam locomotive", 1, True)
-        print(f"{name}: {len(items)}", items[0].title if items else "", items[0].lic if items else "", items[0].thumb if items else "")
-        if items:
-            print("   full:", ps.full_url(items[0]))
+        items = fn("hotel", 1, "")
+        print(f"{name}: {len(items)}", [i.title for i in items[:4]])
     except Exception as e:
         print(f"{name}: ERROR {e}")
-
-for free in (True, False):
-    for q in ("train", "landscape"):
-        try:
-            print("cleveland", q, free, len(ps.src_cleveland(q, 1, free)))
-        except Exception as e:
-            print("cleveland ERR", e)
-try:
-    import requests
-    r = requests.get("https://openaccess-api.clevelandart.org/api/artworks/", params={"q": "train", "limit": 1}, timeout=20)
-    print("cleveland raw", r.status_code, r.text[:600])
-except Exception as e:
-    print("raw err", e)
-for k, name, fn, zh, cat in ps.SOURCES:
-    if k == "loc":
-        it = fn("steam locomotive", 1, True)[0]
-        r = ps.get_with_fallback(ps.full_url(it), it, 60)
-        print("loc full bytes", len(r.content), r.url)
+for k in ("pexels", "unsplash", "pixabay"):
+    try:
+        ps.test_key(k, "badkey123")
+        print(k, "bad key accepted?!")
+    except requests.HTTPError as e:
+        print(k, "bad key ->", e.response.status_code)
+    except Exception as e:
+        print(k, "other", e)
+for u in ["https://tcmbdata.culture.tw/v3/api-docs", "https://tcmbdata.culture.tw/v2/api-docs"]:
+    try:
+        r = requests.get(u, timeout=20)
+        print("TW", u, r.status_code)
+        if r.ok:
+            d = r.json()
+            for path, v in list(d.get("paths", {}).items())[:30]:
+                for m, op in v.items():
+                    print("  ", m, path, [p.get("name") for p in op.get("parameters", [])])
+            break
+    except Exception as e:
+        print("TW err", e)
