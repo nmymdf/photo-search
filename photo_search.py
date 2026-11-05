@@ -26,10 +26,10 @@ import requests
 from PIL import Image, ImageOps, ImageDraw
 
 APP_NAME = "經典圖庫搜尋"
-VERSION = "v0.3"
+VERSION = "v0.3.1"
 AUTHOR = "作者:ArchieKUO"
 GOLD = "#C9A227"
-UA = {"User-Agent": "ClassicPhotoSearch/0.3 (personal desktop app)"}
+UA = {"User-Agent": "ClassicPhotoSearch/0.3.1 (personal desktop app)"}
 PER_FETCH = 16
 COLS = 4
 MAX_ITEMS = 320
@@ -560,6 +560,11 @@ class App:
                                              scrollbar_button_color=LINE,
                                              scrollbar_button_hover_color=SUB)
         self.scroll.grid_columnconfigure(0, weight=1)
+        try:
+            # 內建每格滾輪只捲 20 像素，太慢；改成每格約 140 像素（半張卡片）
+            self.scroll._parent_canvas.configure(yscrollincrement=7)
+        except Exception:
+            pass
         self.sec = {}
         for i, (sk, title) in enumerate(SECTIONS + [("fav", "我的收藏")]):
             head = ctk.CTkFrame(self.scroll, fg_color="transparent")
