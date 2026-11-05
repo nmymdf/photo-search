@@ -2,6 +2,7 @@ name: build-exe
 on:
   push:
     branches: [main]
+    paths-ignore: ["probe/**", ".github/workflows/probe.yml"]
   workflow_dispatch:
 permissions:
   contents: write
