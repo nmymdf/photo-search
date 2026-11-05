@@ -16,11 +16,21 @@ for it in items[:6]:
     except Exception as e:
         pass
 print("TW thumbs ok", ok, "/ 6")
-try:
-    print("commons", len(ps.src_commons("hotel Taiwan", 1, "")))
-except Exception as e:
-    print("commons ERR", e)
-for k in ("pexels", "unsplash", "pixabay"):
+for hq in (True, False):
+    ps.QUALITY["on"] = hq
+    for q in ("hotel Taiwan", "hotel Asia", "hotel"):
+        try:
+            it = ps.src_commons(q, 1, "")
+            print("commons", hq, q, len(it), [x.title[:40] for x in it[:3]])
+        except Exception as e:
+            print("commons ERR", q, e)
+    try:
+        it = ps.src_openverse("hotel taiwan", 1, "")
+        print("openverse", hq, len(it), [x.title[:30] for x in it[:3]])
+    except Exception as e:
+        print("openverse ERR", e)
+ps.QUALITY["on"] = True
+for k in ("pexels", "unsplash", "pixabay", "lummi"):
     try:
         ps.test_key(k, "badkey123")
     except requests.HTTPError as e:
@@ -28,7 +38,7 @@ for k in ("pexels", "unsplash", "pixabay"):
 print("region", ps.region_of("Hotel in Tokyo"), ps.region_of("Taipei 101"), ps.region_of("Paris"))
 import tempfile
 d = tempfile.mkdtemp()
-for it in ps.src_tw("日月潭", 1, "")[:3] + ps.src_commons("hotel Taiwan", 1, "")[:2]:
+for it in ps.src_tw("日月潭", 1, "")[:2] + ps.src_commons("hotel Taiwan", 1, "")[:2]:
     try:
         name, row = ps.download_one(it, d, {})
         import os

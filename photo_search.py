@@ -26,15 +26,17 @@ import requests
 from PIL import Image, ImageOps, ImageDraw
 
 APP_NAME = "經典圖庫搜尋"
-VERSION = "v0.3.3"
+VERSION = "v0.4"
 AUTHOR = "作者:ArchieKUO"
 GOLD = "#C9A227"
-UA = {"User-Agent": "ClassicPhotoSearch/0.3.3 (personal desktop app)"}
+UA = {"User-Agent": "ClassicPhotoSearch/0.4 (personal desktop app)"}
 IMG_UA = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-                        "(KHTML, like Gecko) Chrome/130.0 Safari/537.36 ClassicPhotoSearch/0.3.3"}
+                        "(KHTML, like Gecko) Chrome/130.0 Safari/537.36 ClassicPhotoSearch/0.4"}
 PER_FETCH = 16
 COLS = 4
 MAX_ITEMS = 320
+QUALITY = {"on": True}      # 「只看精選」
+MIN_W = 1600
 MOCK = os.environ.get("PHOTO_MOCK") == "1"
 SMOKE = os.environ.get("PHOTO_SMOKE") == "1"
 FONT = "Microsoft JhengHei UI"
@@ -144,10 +146,10 @@ def region_of(text):
 
 class Item:
     FIELDS = ("key", "source", "title", "thumb", "full", "page", "creator",
-              "lic", "free", "level", "size", "dl_ping", "place")
+              "lic", "free", "level", "size", "dl_ping", "place", "pop", "width")
 
     def __init__(self, source, ident, title, thumb, full, page, creator,
-                 lic_text, size="", dl_ping=None, place=""):
+                 lic_text, size="", dl_ping=None, place="", pop=0):
         self.source = source
         self.key = f"{source}:{ident}"
         t = (title or "").strip()
@@ -158,6 +160,9 @@ class Item:
         self.size = size if size and "None" not in str(size) else ""
         self.dl_ping = dl_ping
         self.place = place
+        self.pop = pop or 0
+        m = re.match(r"(\d+)", str(size or ""))
+        self.width = int(m.group(1)) if m else 0
 
     def to_dict(self):
         return {k: getattr(self, k, None) for k in self.FIELDS}
@@ -209,14 +214,17 @@ def src_unsplash(q, page, key):
                         urls.get("full") or urls.get("raw"),
                         links.get("html"), (p.get("user") or {}).get("name"), "free",
                         f"{p.get('width')} × {p.get('height')}",
-                        dl_ping=links.get("download_location"), place=loc))
+                        dl_ping=links.get("download_location"), place=loc,
+                        pop=p.get("likes") or 0))
     return out
 
 
 def src_pixabay(q, page, key):
     d = http_json("https://pixabay.com/api/",
-                  {"key": key, "q": q[:100], "image_type": "photo",
-                   "per_page": PER_FETCH, "page": page, "safesearch": "true"})
+                  dict({"key": key, "q": q[:100], "image_type": "photo",
+                        "per_page": PER_FETCH, "page": page, "safesearch": "true",
+                        "order": "popular"},
+                       **({"editors_choice": "true", "min_width": MIN_W} if QUALITY["on"] else {})))
     out = []
     for p in d.get("hits", []):
         tags = p.get("tags") or ""
@@ -225,7 +233,8 @@ def src_pixabay(q, page, key):
                   p.get("webformatURL") or p.get("previewURL"),
                   p.get("largeImageURL") or p.get("webformatURL"),
                   p.get("pageURL"), p.get("user"), "free",
-                  f"{p.get('imageWidth')} × {p.get('imageHeight')}")
+                  f"{p.get('imageWidth')} × {p.get('imageHeight')}",
+                  pop=(p.get("likes") or 0) + (p.get("downloads") or 0) / 20)
         it.place = tags
         out.append(it)
     return out
@@ -234,9 +243,11 @@ def src_pixabay(q, page, key):
 def src_commons(q, page, key):
     p = http_json("https://commons.wikimedia.org/w/api.php", {
         "action": "query", "format": "json", "generator": "search",
-        "gsrsearch": f"{q} filetype:bitmap", "gsrnamespace": 6,
+        "gsrsearch": f'{q} filetype:bitmap' + (' incategory:"Quality_images"' if QUALITY["on"] else ""),
+        "gsrnamespace": 6,
         "gsrlimit": PER_FETCH, "gsroffset": (page - 1) * PER_FETCH,
-        "prop": "imageinfo", "iiprop": "url|extmetadata|size", "iiurlwidth": 500})
+        "prop": "imageinfo", "iiprop": "url|extmetadata|size", "iiurlwidth": 500},
+        timeout=25)
     pages = sorted((p.get("query", {}).get("pages", {}) or {}).values(),
                    key=lambda x: x.get("index", 0))
     out = []
@@ -253,6 +264,49 @@ def src_commons(q, page, key):
                         ii.get("descriptionurl"),
                         (meta.get("Artist", {}) or {}).get("value", ""), lic,
                         f"{ii.get('width')} × {ii.get('height')}"))
+    return out
+
+
+def src_openverse(q, page, key):
+    params = {"q": q, "page": page, "page_size": 20, "license": "cc0,pdm,by,by-sa"}
+    if QUALITY["on"]:
+        params["size"] = "large"
+    d = http_json("https://api.openverse.org/v1/images/", params, timeout=25)
+    out = []
+    for r in d.get("results", []):
+        lic = r.get("license", "")
+        lic = "public domain" if lic == "pdm" else ("cc0" if lic == "cc0" else f"cc {lic}")
+        size = f"{r.get('width')} × {r.get('height')}" if r.get("width") else ""
+        out.append(Item("openverse", r.get("id"), r.get("title"),
+                        r.get("thumbnail") or r.get("url"), r.get("url"),
+                        r.get("foreign_landing_url"), r.get("creator"), lic, size))
+    return out
+
+
+def src_lummi(q, page, key):
+    params = {"query": q, "page": page, "perPage": 20, "imageType": "photo", "free": "true"}
+    h = {"Authorization": f"Bearer {key}"}
+    try:
+        d = http_json("https://api.lummi.ai/v1/images/search", params, h, timeout=25)
+    except requests.HTTPError as ex:
+        if ex.response is not None and ex.response.status_code == 404:
+            d = http_json("https://api.lummi.ai/v1/images", params, h, timeout=25)
+        else:
+            raise
+    rows = d.get("data") if isinstance(d, dict) else d
+    if isinstance(rows, dict):
+        rows = rows.get("images") or rows.get("data") or []
+    out = []
+    for r in rows or []:
+        url = r.get("url")
+        if not url:
+            continue
+        base = url.split("?")[0]
+        author = (r.get("author") or {}).get("name", "")
+        out.append(Item("lummi", r.get("id"), r.get("name") or r.get("description") or q,
+                        base + "?w=600", base, r.get("attributionUrl") or "https://www.lummi.ai/",
+                        author, "free", f"{r.get('width')} × {r.get('height')}",
+                        place=r.get("description") or ""))
     return out
 
 
@@ -384,8 +438,10 @@ SOURCES = [
     ("tw", "台灣觀光署", src_tw, False, True, False, False),
     ("unsplash", "Unsplash", src_unsplash, True, True, False, True),
     ("pixabay", "Pixabay", src_pixabay, True, True, False, True),
+    ("commons", "維基優質圖片", src_commons, False, True, False, True),
+    ("lummi", "Lummi（AI）", src_lummi, True, False, False, False),
+    ("openverse", "Openverse", src_openverse, False, False, True, False),
     ("pexels", "Pexels", src_pexels, True, False, True, True),
-    ("commons", "維基共享資源", src_commons, False, False, True, False),
 ]
 if MOCK:
     SOURCES = [(k, n, (fn if k == "tw" else make_mock(k)), False, d, x, g)
@@ -397,20 +453,23 @@ KEY_INFO = [
      "建立應用程式後，在「Keys」區複製「Access Key」"),
     ("pixabay", "Pixabay", "https://pixabay.com/api/docs/",
      "登入後按 Explore → API → View API documentation，往下捲找「key」"),
+    ("lummi", "Lummi（AI）", "https://www.lummi.ai/developers",
+     "註冊登入後到 Developers 申請 API 金鑰（AI 生成的圖片）"),
     ("pexels", "Pexels", "https://www.pexels.com/api/",
      "Pexels 目前暫停核發新金鑰，以後恢復再申請"),
 ]
 
 
 def test_key(src, key):
-    fn = {"pexels": src_pexels, "unsplash": src_unsplash, "pixabay": src_pixabay}[src]
+    fn = {"pexels": src_pexels, "unsplash": src_unsplash, "pixabay": src_pixabay,
+          "lummi": src_lummi}[src]
     fn("hotel", 1, key)
 
 
 # ---------------------------------------------------------------- 翻譯
 def translate(text, sl, tl):
     if MOCK:
-        return {"en": "hotel", "ja": "ホテル", "zh-TW": "飯店"}.get(tl, text)
+        return {"en": "hotel", "ja": "ホテル", "zh-TW": "飯店", "zh-CN": "酒店"}.get(tl, text)
     try:
         d = http_json("https://translate.googleapis.com/translate_a/single", {
             "client": "gtx", "sl": sl, "tl": tl, "dt": "t", "q": text}, timeout=10)
@@ -508,7 +567,7 @@ class App:
             pass
 
     def save_settings(self):
-        self.settings["sources_v3"] = [k for k, v in self.src_on.items() if v]
+        self.settings["sources_v4"] = [k for k, v in self.src_on.items() if v]
         self.save_json("settings.json", self.settings)
 
     def save_favs(self):
@@ -531,7 +590,7 @@ class App:
     def build(self):
         r = self.root
         r.grid_columnconfigure(0, weight=1)
-        r.grid_rowconfigure(3, weight=1)
+        r.grid_rowconfigure(5, weight=1)
 
         head = ctk.CTkFrame(r, fg_color=PANEL, corner_radius=0)
         head.grid(row=0, column=0, sticky="ew")
@@ -566,7 +625,7 @@ class App:
         src = ctk.CTkFrame(r, fg_color="transparent")
         src.grid(row=2, column=0, sticky="ew", padx=24, pady=(12, 0))
         ctk.CTkLabel(src, text="來源", font=F(16), text_color=SUB).pack(side="left", padx=(2, 10))
-        saved = self.settings.get("sources_v3")
+        saved = self.settings.get("sources_v4")
         self.src_on, self.chips = {}, {}
         for k, name, fn, need, default, extra, intl in SOURCES:
             self.src_on[k] = (k in saved) if saved is not None else default
@@ -576,15 +635,42 @@ class App:
         self.more_btn = ctk.CTkButton(src, text="更多 ▾", font=F(16), height=38, width=80,
                                       corner_radius=19, fg_color="transparent",
                                       hover_color=PANEL2, text_color=SUB, command=self.toggle_more)
-        self.btn(src, "設定", lambda: self.show_mode("settings"), width=80).pack(side="right")
-        self.b_view = self.btn(src, "我的收藏（0）", self.toggle_favs, width=150)
-        self.b_view.pack(side="right", padx=8)
-        self.btn(src, "日本圖庫 ↗", self.open_japan, width=130).pack(side="right")
         self.layout_chips()
+
+        # 品質列＋右側按鈕
+        qr = ctk.CTkFrame(r, fg_color="transparent")
+        qr.grid(row=3, column=0, sticky="ew", padx=24, pady=(10, 0))
+        ctk.CTkLabel(qr, text="品質", font=F(16), text_color=SUB).pack(side="left", padx=(2, 10))
+        self.hq_var = tk.BooleanVar(value=self.settings.get("quality", True))
+        QUALITY["on"] = self.hq_var.get()
+        ctk.CTkSwitch(qr, text="只看精選（濾掉小張、模糊、冷門的照片）", variable=self.hq_var,
+                      font=F(16), text_color=TX, switch_width=48, switch_height=24,
+                      progress_color=ACCENT, command=self.on_quality).pack(side="left")
+        self.btn(qr, "設定", lambda: self.show_mode("settings"), width=80).pack(side="right")
+        self.b_view = self.btn(qr, "我的收藏（0）", self.toggle_favs, width=150)
+        self.b_view.pack(side="right", padx=8)
+        self.b_sites = self.btn(qr, "其他網站 ↗", self.toggle_sites, width=130)
+        self.b_sites.pack(side="right")
+
+        # 其他網站（按「其他網站」才出現）
+        self.sites = ctk.CTkFrame(r, fg_color=PANEL, corner_radius=12, border_width=1, border_color=LINE)
+        self.sites_open = False
+        groups = [("中文", [("Colorhub", "colorhub")]),
+                  ("日本", [("ぱくたそ", "pakutaso"), ("写真AC", "photoac")]),
+                  ("歐美", [("StockSnap", "stocksnap"), ("Burst", "burst"), ("ISO Republic", "isorepublic")])]
+        inner = ctk.CTkFrame(self.sites, fg_color="transparent")
+        inner.pack(fill="x", padx=12, pady=10)
+        ctk.CTkLabel(inner, text="用瀏覽器打開，並自動帶入關鍵字：", font=F(15), text_color=SUB
+                     ).pack(side="left", padx=(0, 10))
+        for gname, items in groups:
+            ctk.CTkLabel(inner, text=gname, font=F(15, bold=True), text_color=TX).pack(side="left", padx=(12, 6))
+            for label, key in items:
+                self.btn(inner, label, lambda k=key: self.open_site(k), size=15, height=36,
+                         width=0).pack(side="left", padx=3)
 
         # 內容區
         self.content = ctk.CTkFrame(r, fg_color="transparent")
-        self.content.grid(row=3, column=0, sticky="nsew", padx=18, pady=(10, 0))
+        self.content.grid(row=5, column=0, sticky="nsew", padx=18, pady=(10, 0))
         self.content.grid_columnconfigure(0, weight=1)
         self.content.grid_rowconfigure(0, weight=1)
         self.scroll = ctk.CTkScrollableFrame(self.content, fg_color="transparent",
@@ -620,7 +706,7 @@ class App:
 
         # 動作列
         bar = ctk.CTkFrame(r, fg_color=PANEL, corner_radius=12, border_width=1, border_color=LINE)
-        bar.grid(row=4, column=0, sticky="ew", padx=24, pady=(8, 0))
+        bar.grid(row=6, column=0, sticky="ew", padx=24, pady=(8, 0))
         self.toolbar = bar
         inner = ctk.CTkFrame(bar, fg_color="transparent")
         inner.pack(fill="x", padx=10, pady=8)
@@ -635,7 +721,7 @@ class App:
         self.btn(inner, "開啟下載資料夾", self.open_folder, width=150).pack(side="right", padx=4)
 
         det = ctk.CTkFrame(r, fg_color="transparent")
-        det.grid(row=5, column=0, sticky="ew", padx=24, pady=(8, 12))
+        det.grid(row=7, column=0, sticky="ew", padx=24, pady=(8, 12))
         self.detail = det
         det.grid_columnconfigure(1, weight=1)
         self.det_title = ctk.CTkLabel(det, text="點一下圖片看資訊，按兩下看大圖",
@@ -1122,7 +1208,10 @@ class App:
         added = 0
         buckets = {s: [] for s, _ in SECTIONS}
         for sec, items in results:
+            if QUALITY["on"]:
+                items = [x for x in items if x.source == "tw" or not x.width or x.width >= MIN_W]
             buckets[sec].append(items)
+        batch = {}
         for sk, _ in SECTIONS:
             lists = buckets[sk]
             i = 0
@@ -1136,9 +1225,23 @@ class App:
                         if sk == "other":
                             target = region_of(f"{it.title} {it.place}") or "other"
                         self.seen.add(it.key)
-                        self.items[target].append(it)
+                        batch.setdefault(target, []).append(it)
                         added += 1
                 i += 1
+        for target, its in batch.items():
+            if QUALITY["on"]:
+                tw_first = [x for x in its if x.source == "tw"]
+                rest = sorted([x for x in its if x.source != "tw"], key=lambda x: -x.pop)
+                # 台灣觀光署與其他圖庫交錯，熱門的排前面
+                mixed, a, b = [], 0, 0
+                while a < len(tw_first) or b < len(rest):
+                    if a < len(tw_first):
+                        mixed.append(tw_first[a]); a += 1
+                    for _ in range(2):
+                        if b < len(rest):
+                            mixed.append(rest[b]); b += 1
+                its = mixed
+            self.items[target].extend(its)
         if added == 0:
             self.exhausted = True
         if self.mode == "search":
@@ -1162,22 +1265,53 @@ class App:
         sid = self.search_id
         threading.Thread(target=lambda: self.fetch_round(srcs, sid), daemon=True).start()
 
-    def open_japan(self):
+    def on_quality(self):
+        QUALITY["on"] = self.hq_var.get()
+        self.settings["quality"] = QUALITY["on"]
+        self.save_settings()
+        if self.q_entry.get().strip() or self.en_entry.get().strip():
+            self.start_search(bool(self.en_entry.get().strip()) and not self.q_entry.get().strip())
+
+    def toggle_sites(self):
+        self.sites_open = not self.sites_open
+        if self.sites_open:
+            self.sites.grid(row=4, column=0, sticky="ew", padx=24, pady=(10, 0))
+            self.b_sites.configure(text="收起網站 ▴")
+        else:
+            self.sites.grid_forget()
+            self.b_sites.configure(text="其他網站 ↗")
+
+    SITE_URLS = {
+        "colorhub": ("zh-CN", "https://www.colorhub.me/search?tag={}"),
+        "pakutaso": ("ja", "https://www.pakutaso.com/search.html?offset=0&limit=all&search={}"),
+        "photoac": ("ja", "https://www.photo-ac.com/main/search?q={}"),
+        "stocksnap": ("en", "https://stocksnap.io/search/{}"),
+        "burst": ("en", "https://www.shopify.com/stock-photos/photos/search?q={}"),
+        "isorepublic": ("en", "https://isorepublic.com/?s={}&post_type=photo"),
+    }
+
+    def open_site(self, site):
         text = self.q_entry.get().strip() or self.en_entry.get().strip()
         if not text:
-            self.set_status("請先輸入關鍵字，再按「日本圖庫」")
+            self.bar_msg("請先在上面輸入關鍵字", "err")
             return
-        self.set_status("翻譯成日文，打開日本圖庫中…")
+        lang, pattern = self.SITE_URLS[site]
+        en = self.en_entry.get().strip()
 
         def job():
+            q = text
             try:
-                ja = translate(text, "auto", "ja")
+                if lang == "en":
+                    q = en or translate(text, "auto", "en")
+                elif lang == "ja":
+                    q = translate(text, "auto", "ja")
+                elif lang == "zh-CN":
+                    q = translate(text, "auto", "zh-CN")
             except Exception:
-                ja = text
-            qs = urllib.parse.quote(ja)
-            self.q.put(("open", [f"https://www.pakutaso.com/search.html?offset=0&limit=all&search={qs}",
-                                 f"https://www.photo-ac.com/main/search?q={qs}"], None))
-            self.q.put(("status", f"已在瀏覽器打開ぱくたそ和写真AC（日文：{ja}）", None))
+                pass
+            qs = urllib.parse.quote(q) if site != "stocksnap" else urllib.parse.quote(q.replace(" ", "-"))
+            self.q.put(("open", [pattern.format(qs)], None))
+            self.q.put(("status", f"已在瀏覽器打開（關鍵字：{q}）", None))
         threading.Thread(target=job, daemon=True).start()
 
     # ---------- 勾選與選取
@@ -1452,6 +1586,7 @@ def smoke_run(root, app):
         root.after(1500, lambda: (shot("results"), step3()))
 
     def step3():
+        app.toggle_sites()
         app.scroll._parent_canvas.yview_moveto(0.45)
         root.after(1500, lambda: (shot("scrolled"), step4()))
 
