@@ -438,7 +438,7 @@ def download_one(it, d, keys):
                     **UA, "Authorization": f"Client-ID {keys['unsplash']}"}, timeout=15)
             except Exception:
                 pass
-        r = requests.get(it.full, headers=IMG_UA, timeout=90)
+        r = requests.get(it.full, headers=UA if it.source == "commons" else IMG_UA, timeout=90)
         r.raise_for_status()
         data = r.content
         if len(data) < 500:
