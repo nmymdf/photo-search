@@ -163,6 +163,10 @@ def src_loc(q, page, free_only):
             continue
         thumb = imgs[min(1, len(imgs) - 1)]
         full = imgs[-1]
+        m = re.match(r"(.*?)_150px\.jpg$", full)
+        if m:
+            thumb = m.group(1) + "r.jpg"
+            full = m.group(1) + "v.jpg"
         rights = r.get("rights") or r.get("rights_advisory") or ""
         if isinstance(rights, list):
             rights = " ".join(map(str, rights))
@@ -277,6 +281,25 @@ def full_url(it):
     return it.full
 
 
+def get_with_fallback(url, it, timeout):
+    """國會圖書館的大圖有時沒有 v.jpg，改試 r.jpg 或原本的小圖。"""
+    cands = [url]
+    m = re.match(r"(.*?)[vr]\.jpg$", url or "")
+    if it.source == "loc" and m:
+        cands += [m.group(1) + "r.jpg", m.group(1) + "_150px.jpg"]
+    last = None
+    for u in dict.fromkeys(cands):
+        try:
+            r = requests.get(u, headers=UA, timeout=timeout)
+            r.raise_for_status()
+            if it.full == url and u != url and timeout > 20:
+                it.full = u
+            return r
+        except Exception as ex:
+            last = ex
+    raise last
+
+
 def src_archive(q, page, free_only):
     d = http_json("https://archive.org/advancedsearch.php", {
         "q": f"({q}) AND mediatype:image",
@@ -306,7 +329,7 @@ def src_mock(q, page, free_only):
     for i in range(PER_FETCH):
         n = (page - 1) * PER_FETCH + i
         lic = ["public domain", "cc0", "cc by", ""][n % 4]
-        out.append(Item("mock", n, f"{q} 範例 {n + 1}", None, None,
+        out.append(Item("mock", n, f"{q} 範例 {n + 1}", None, "mock",
                         "https://example.com", "測試作者", lic))
     return out
 
@@ -316,7 +339,6 @@ SOURCES = [
     ("loc", "國會圖書館", src_loc, False, "photo"),
     ("commons", "維基共享資源", src_commons, True, "both"),
     ("openverse", "Openverse", src_openverse, False, "photo"),
-    ("met", "大都會博物館", src_met, False, "art"),
     ("aic", "芝加哥藝術館", src_aic, False, "art"),
     ("cleveland", "克里夫蘭藝術館", src_cleveland, False, "art"),
     ("archive", "Internet Archive", src_archive, False, "photo"),
@@ -616,8 +638,7 @@ class App:
                 if MOCK or not it.thumb:
                     im = Image.new("RGB", (400, 260), ["#C9B79C", "#9CB4C9", "#A9C99C"][hash(it.key) % 3])
                 else:
-                    r = requests.get(it.thumb, headers=UA, timeout=20)
-                    r.raise_for_status()
+                    r = get_with_fallback(it.thumb, it, 20)
                     im = Image.open(io.BytesIO(r.content)).convert("RGB")
                 im.thumbnail((THUMB_W, THUMB_H))
                 canvas = Image.new("RGB", (THUMB_W, THUMB_H), "#EFEFEC")
@@ -855,8 +876,7 @@ class App:
                 if MOCK or not url:
                     im = Image.new("RGB", (1600, 1000), "#9CB4C9")
                 else:
-                    r = requests.get(url, headers=UA, timeout=60)
-                    r.raise_for_status()
+                    r = get_with_fallback(url, it, 60)
                     im = Image.open(io.BytesIO(r.content)).convert("RGB")
                 im.thumbnail((980, 680))
 
@@ -938,8 +958,7 @@ class App:
                     if MOCK:
                         data, ext = b"mock", ".jpg"
                     else:
-                        r = requests.get(url, headers=UA, timeout=120)
-                        r.raise_for_status()
+                        r = get_with_fallback(url, it, 120)
                         data = r.content
                         ct = r.headers.get("Content-Type", "")
                         ext = ".png" if "png" in ct else ".tif" if "tiff" in ct else ".jpg"
