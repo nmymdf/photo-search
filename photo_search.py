@@ -26,10 +26,10 @@ import requests
 from PIL import Image, ImageOps, ImageDraw
 
 APP_NAME = "經典圖庫搜尋"
-VERSION = "v0.4"
+VERSION = "v0.4.1"
 AUTHOR = "作者:ArchieKUO"
 GOLD = "#C9A227"
-UA = {"User-Agent": "ClassicPhotoSearch/0.4 (personal desktop app)"}
+UA = {"User-Agent": "ClassicPhotoSearch/0.4.1 (personal desktop app)"}
 IMG_UA = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
                         "(KHTML, like Gecko) Chrome/130.0 Safari/537.36 ClassicPhotoSearch/0.4"}
 PER_FETCH = 16
@@ -135,6 +135,19 @@ def rounded(img, bg, r):
     return out
 
 
+STOP = {"the", "and", "with", "for", "of", "in", "on", "a", "an", "to"}
+
+
+def relevant(it, base_q):
+    """加了 Taiwan／Asia 的搜尋，圖庫常會回傳只跟地區有關的照片；這裡只留真的和關鍵字有關的。"""
+    words = [w for w in re.findall(r"[a-z]+", base_q.lower()) if len(w) >= 3 and w not in STOP]
+    if not words:
+        return True
+    text = f"{it.title} {it.place}".lower()
+    hits = sum(1 for w in words if w in text or (w.endswith("s") and w[:-1] in text))
+    return hits >= max(1, (len(words) + 1) // 2)
+
+
 def region_of(text):
     t = (text or "").lower()
     if any(w in t for w in TW_WORDS):
@@ -207,7 +220,8 @@ def src_unsplash(q, page, key):
     for p in d.get("results", []):
         urls = p.get("urls") or {}
         links = p.get("links") or {}
-        loc = ""
+        loc = " ".join(t.get("title", "") for t in (p.get("tags") or []) if isinstance(t, dict))
+        loc += " " + (p.get("description") or "")
         out.append(Item("unsplash", p.get("id"),
                         p.get("alt_description") or p.get("description") or q,
                         urls.get("small") or urls.get("regular"),
@@ -1201,7 +1215,10 @@ class App:
         def run(j):
             sec, name, fn, q, key = j
             try:
-                return sec, name, fn(q, page, key), None
+                items = fn(q, page, key)
+                if sec in ("tw", "asia") and q != qz and not MOCK:
+                    items = [x for x in items if relevant(x, qe)]
+                return sec, name, items, None
             except Exception as ex:
                 return sec, name, [], str(ex)
         results, errors = [], []

@@ -45,3 +45,6 @@ for it in ps.src_tw("日月潭", 1, "")[:2] + ps.src_commons("hotel Taiwan", 1, 
         print("DL OK", it.source, name, os.path.getsize(os.path.join(d, name)))
     except Exception as e:
         print("DL FAIL", it.source, e, it.full)
+it = ps.Item("pixabay", 1, "Taipei", "x", "x", "", "", "free"); it.place = "taipei, taiwan, buildings"
+it2 = ps.Item("pixabay", 2, "Doll", "x", "x", "", "", "free"); it2.place = "doll, toy, taiwan"
+print("relevant", ps.relevant(it, "doll"), ps.relevant(it2, "doll"), ps.relevant(it2, "dolls"))
