@@ -1,31 +1,28 @@
-import json, requests
+import time, requests
 import photo_search as ps
-print("translate:", ps.translate_zh_en("海邊飯店"))
-for k, name, fn, need, d, x in ps.SOURCES:
-    if need:
-        continue
+print("translate:", ps.translate("海邊飯店", "zh-TW", "en"), ps.translate("hotel", "en", "zh-TW"), ps.translate("海邊飯店", "auto", "ja"))
+t = time.time()
+ps.TW.ensure(print)
+print("TW entries", len(ps.TW.entries), "load sec", round(time.time() - t, 1))
+for q in ("飯店", "日月潭", "夜市", "海邊 民宿"):
+    items = ps.src_tw(q, 1, "")
+    print("TW", q, len(items), [i.title for i in items[:5]], [i.place for i in items[:3]])
+items = ps.src_tw("飯店", 1, "")
+ok = 0
+for it in items[:6]:
     try:
-        items = fn("hotel", 1, "")
-        print(f"{name}: {len(items)}", [i.title for i in items[:4]])
+        r = requests.get(it.thumb, headers=ps.UA, timeout=20)
+        ok += r.ok
     except Exception as e:
-        print(f"{name}: ERROR {e}")
+        pass
+print("TW thumbs ok", ok, "/ 6")
+try:
+    print("commons", len(ps.src_commons("hotel Taiwan", 1, "")))
+except Exception as e:
+    print("commons ERR", e)
 for k in ("pexels", "unsplash", "pixabay"):
     try:
         ps.test_key(k, "badkey123")
-        print(k, "bad key accepted?!")
     except requests.HTTPError as e:
         print(k, "bad key ->", e.response.status_code)
-    except Exception as e:
-        print(k, "other", e)
-for u in ["https://tcmbdata.culture.tw/v3/api-docs", "https://tcmbdata.culture.tw/v2/api-docs"]:
-    try:
-        r = requests.get(u, timeout=20)
-        print("TW", u, r.status_code)
-        if r.ok:
-            d = r.json()
-            for path, v in list(d.get("paths", {}).items())[:30]:
-                for m, op in v.items():
-                    print("  ", m, path, [p.get("name") for p in op.get("parameters", [])])
-            break
-    except Exception as e:
-        print("TW err", e)
+print("region", ps.region_of("Hotel in Tokyo"), ps.region_of("Taipei 101"), ps.region_of("Paris"))
