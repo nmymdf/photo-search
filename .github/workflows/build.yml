@@ -1,0 +1,48 @@
+name: build-exe
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install requests pillow pyinstaller
+      - name: Test sources
+        continue-on-error: true
+        env:
+          PYTHONIOENCODING: utf-8
+        run: python test_sources.py
+      - name: Smoke test UI
+        env:
+          PHOTO_MOCK: "1"
+          PHOTO_SMOKE: "1"
+          PYTHONIOENCODING: utf-8
+        run: python photo_search.py
+      - name: Build
+        shell: bash
+        run: |
+          VER=$(grep -oP '^VERSION = "\K[^"]+' photo_search.py)
+          pyinstaller --onefile --windowed --icon icon.ico --name "ClassicPhotoSearch_${VER}" photo_search.py
+          ls dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: exe
+          path: dist/*.exe
+      - name: Publish to exe branch
+        shell: bash
+        run: |
+          mkdir out && cp dist/*.exe out/
+          cd out
+          git init -q
+          git config user.name "github-actions"
+          git config user.email "actions@github.com"
+          git checkout -q -b exe
+          git add . && git commit -qm "build ${GITHUB_SHA}"
+          git push -f "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${GITHUB_REPOSITORY}.git" exe
