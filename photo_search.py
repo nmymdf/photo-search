@@ -32,6 +32,7 @@ GOLD = "#C9A227"
 UA = {"User-Agent": "ClassicPhotoSearch/0.3 (personal desktop app)"}
 PER_FETCH = 16
 COLS = 4
+MAX_ITEMS = 320
 MOCK = os.environ.get("PHOTO_MOCK") == "1"
 SMOKE = os.environ.get("PHOTO_SMOKE") == "1"
 FONT = "Microsoft JhengHei UI"
@@ -306,9 +307,9 @@ class TwTourism:
 
     def search(self, q_zh, page):
         if MOCK:
-            return [Item("tw", f"{page}-{i}", f"台灣景點範例 {i + 1}", "mock", "mock",
+            return [Item("tw", f"{page}-{i}", f"日月潭涵碧樓景觀飯店 {i + 1}", "mock", "mock",
                          "https://www.taiwan.net.tw/", "", "gov", place="南投縣")
-                    for i in range(8)]
+                    for i in range(8)] if page <= 2 else []
         self.ensure()
         tokens = [t for t in re.split(r"[\s,，、]+", q_zh) if t]
         if not tokens:
@@ -365,6 +366,8 @@ MOCK_WORDS = ["Hotel lobby with ocean view", "飯店泳池", "Hotel room", "城�
 def make_mock(source):
     def fn(q, page, key):
         out = []
+        if page > 2:
+            return out
         for i in range(8):
             n = (page - 1) * 8 + i
             title = MOCK_WORDS[n % len(MOCK_WORDS)] + " " + q.split()[-1]
@@ -448,6 +451,7 @@ class App:
         self._resize_job = None
         self.ph_img = None
         self.cards = []
+        self.last_merge = 0
 
         root.title(f"{APP_NAME} {VERSION}")
         root.geometry("1280x900")
@@ -965,8 +969,18 @@ class App:
     def check_scroll_end(self):
         if self.mode != "search" or self.searching or self.exhausted or not self.seen:
             return
+        if time.time() - self.last_merge < 1.5:
+            return
+        if len(self.seen) >= MAX_ITEMS:
+            self.exhausted = True
+            self.more_lbl.configure(text=f"已顯示 {MAX_ITEMS} 張，想看更多請換個關鍵字")
+            return
         try:
-            bottom = self.scroll._parent_canvas.yview()[1]
+            cv = self.scroll._parent_canvas
+            bbox = cv.bbox("all")
+            if not bbox or bbox[3] - bbox[1] <= cv.winfo_height() + 20:
+                return
+            bottom = cv.yview()[1]
         except Exception:
             return
         if bottom > 0.93:
@@ -1067,6 +1081,7 @@ class App:
             return
         errors, nokey = info
         self.searching = False
+        self.last_merge = time.time()
         added = 0
         buckets = {s: [] for s, _ in SECTIONS}
         for sec, items in results:
