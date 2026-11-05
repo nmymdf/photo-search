@@ -26,12 +26,12 @@ import requests
 from PIL import Image, ImageOps, ImageDraw
 
 APP_NAME = "經典圖庫搜尋"
-VERSION = "v0.3.2"
+VERSION = "v0.3.3"
 AUTHOR = "作者:ArchieKUO"
 GOLD = "#C9A227"
-UA = {"User-Agent": "ClassicPhotoSearch/0.3.2 (personal desktop app)"}
+UA = {"User-Agent": "ClassicPhotoSearch/0.3.3 (personal desktop app)"}
 IMG_UA = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-                        "(KHTML, like Gecko) Chrome/130.0 Safari/537.36 ClassicPhotoSearch/0.3.2"}
+                        "(KHTML, like Gecko) Chrome/130.0 Safari/537.36 ClassicPhotoSearch/0.3.3"}
 PER_FETCH = 16
 COLS = 4
 MAX_ITEMS = 320
@@ -541,8 +541,8 @@ class App:
         self.status = ctk.CTkLabel(head, text="輸入關鍵字後按 Enter 搜尋", font=F(15),
                                    text_color=SUB, anchor="w")
         self.status.grid(row=0, column=1, sticky="ew", padx=10)
-        ctk.CTkLabel(head, text=f"{AUTHOR}　{VERSION}", font=F(17, italic=True),
-                     text_color=GOLD).grid(row=0, column=2, padx=24, sticky="e")
+        ctk.CTkLabel(head, text=f"{AUTHOR}　{VERSION}  ", font=F(17, italic=True),
+                     text_color=GOLD).grid(row=0, column=2, padx=(24, 20), sticky="e")
 
         s = ctk.CTkFrame(r, fg_color="transparent")
         s.grid(row=1, column=0, sticky="ew", padx=24, pady=(14, 0))
@@ -625,9 +625,9 @@ class App:
         inner = ctk.CTkFrame(bar, fg_color="transparent")
         inner.pack(fill="x", padx=10, pady=8)
         self.b_none = self.btn(inner, "全部取消", self.uncheck_all, width=110)
-        self.b_dl = self.btn(inner, "下載已勾選（0）", self.download_checked, primary=True, width=190)
-        self.b_fav = self.btn(inner, "收藏已勾選", self.fav_checked, width=120)
-        self.b_unfav = self.btn(inner, "移除已勾選收藏", self.unfav_checked, width=150)
+        self.b_dl = self.btn(inner, "下載", self.download_checked, primary=True, width=200)
+        self.b_fav = self.btn(inner, "收藏", self.fav_checked, width=170)
+        self.b_unfav = self.btn(inner, "移除收藏", self.unfav_checked, width=190)
         for b in (self.b_none, self.b_dl, self.b_fav):
             b.pack(side="left", padx=4)
         self.more_lbl = ctk.CTkLabel(inner, text="往下捲會自動載入更多", font=F(15), text_color=SUB)
@@ -645,10 +645,7 @@ class App:
         self.det_info.grid(row=0, column=1, sticky="ew")
         bb = ctk.CTkFrame(det, fg_color="transparent")
         bb.grid(row=0, column=2)
-        self.btn(bb, "出處頁", self.open_page, width=90).pack(side="left", padx=4)
-        self.btn(bb, "收藏", lambda: self.add_favs([self.current]), width=80).pack(side="left", padx=4)
-        self.btn(bb, "下載這張", lambda: self.download_items([self.current]),
-                 primary=True, width=120).pack(side="left", padx=(4, 0))
+        self.btn(bb, "出處頁", self.open_page, width=100).pack(side="left", padx=(4, 0))
 
     def layout_chips(self):
         for k, (b, extra) in self.chips.items():
@@ -788,6 +785,7 @@ class App:
 
     def toggle_favs(self):
         self.checked.clear()
+        self.current = None
         self.update_dl()
         self.show_mode("search" if self.mode == "favs" else "favs")
 
@@ -1050,6 +1048,7 @@ class App:
         self.items = {s: [] for s, _ in SECTIONS}
         self.seen, self.fetch_page, self.exhausted = set(), 0, False
         self.current = None
+        self.update_dl()
         self.searching = True
         self.query_en = self.query_zh = ""
         self.mode = "search"
@@ -1182,8 +1181,26 @@ class App:
         threading.Thread(target=job, daemon=True).start()
 
     # ---------- 勾選與選取
+    def targets(self):
+        """要處理的照片：有打勾就是打勾的；沒有就是藍框選中的那一張。"""
+        if self.checked:
+            return list(self.checked.values())
+        return [self.current] if self.current else []
+
     def update_dl(self):
-        self.b_dl.configure(text=f"下載已勾選（{len(self.checked)}）")
+        n = len(self.checked)
+        if n:
+            self.b_dl.configure(text=f"下載已勾選（{n}）")
+            self.b_fav.configure(text=f"收藏已勾選（{n}）")
+            self.b_unfav.configure(text=f"移除已勾選（{n}）")
+        elif self.current:
+            self.b_dl.configure(text="下載這張")
+            self.b_fav.configure(text="收藏這張")
+            self.b_unfav.configure(text="移除這張收藏")
+        else:
+            self.b_dl.configure(text="下載")
+            self.b_fav.configure(text="收藏")
+            self.b_unfav.configure(text="移除收藏")
 
     def on_check(self, card):
         it = card["item"]
@@ -1222,6 +1239,7 @@ class App:
             info.append(it.size)
         info.append(it.lic)
         self.det_info.configure(text="　·　".join(info))
+        self.update_dl()
 
     def open_page(self):
         if self.current and self.current.page:
@@ -1268,28 +1286,30 @@ class App:
     def add_favs(self, items):
         items = [x for x in items if x]
         if not items:
-            self.set_status("請先勾選或點選圖片")
+            self.bar_msg("請先勾選照片，或點一下照片", "err")
             return
         for x in items:
             self.favs[x.key] = x
         self.save_favs()
         self.set_status(f"已收藏 {len(items)} 張")
+        self.bar_msg(f"✓ 已收藏 {len(items)} 張", "ok")
         if self.mode == "search":
             self.b_view.configure(text=f"我的收藏（{len(self.favs)}）")
 
     def fav_checked(self):
-        self.add_favs(list(self.checked.values()))
+        self.add_favs(self.targets())
 
     def unfav_checked(self):
-        items = list(self.checked.values())
+        items = self.targets()
         if not items:
-            self.set_status("請先勾選要移除的收藏")
+            self.bar_msg("請先勾選或點選要移除的收藏", "err")
             return
         if not messagebox.askyesno(APP_NAME, f"確定要從收藏移除 {len(items)} 張嗎？\n（已下載的檔案不會被刪除）"):
             return
         for x in items:
             self.favs.pop(x.key, None)
         self.checked.clear()
+        self.current = None
         self.update_dl()
         self.save_favs()
         self.rebuild_all()
@@ -1319,15 +1339,12 @@ class App:
                                 font=F(16, bold=kind in ("ok", "err", "busy")))
 
     def download_checked(self):
-        items = list(self.checked.values())
-        if not items and self.current:
-            items = [self.current]
-        self.download_items(items)
+        self.download_items(self.targets())
 
     def download_items(self, items):
         items = [x for x in items if x]
         if not items:
-            self.bar_msg("請先勾選照片（照片下方的方框）", "err")
+            self.bar_msg("請先勾選照片，或點一下照片", "err")
             self.set_status("請先勾選要下載的照片")
             return
         d = Path(self.folder())
