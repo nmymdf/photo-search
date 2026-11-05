@@ -499,11 +499,14 @@ def download_one(it, d, keys):
                 pass
         r = requests.get(it.full, headers=UA if it.source == "commons" else IMG_UA, timeout=90)
         if it.source == "commons" and r.status_code in (403, 429):
-            # 維基原圖被限流時，改下載 2560 像素寬的版本
+            # 維基原圖被限流時，改下載官方標準大尺寸（3840／1920／1280 寬）
             m = re.match(r"(https://upload\.wikimedia\.org/wikipedia/commons/)(\w/\w\w/)([^?]+)", it.full)
             if m:
-                big = f"{m.group(1)}thumb/{m.group(2)}{m.group(3)}/2560px-{m.group(3)}"
-                r = requests.get(big, headers=UA, timeout=90)
+                for w in (3840, 1920, 1280):
+                    big = f"{m.group(1)}thumb/{m.group(2)}{m.group(3)}/{w}px-{m.group(3)}"
+                    r = requests.get(big, headers=UA, timeout=90)
+                    if r.ok:
+                        break
         r.raise_for_status()
         data = r.content
         if len(data) < 500:
