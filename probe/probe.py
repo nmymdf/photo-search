@@ -1,25 +1,28 @@
-import json, requests
+import json, requests, io, zipfile
 H={"User-Agent":"Mozilla/5.0 ClassicPhotoSearch"}
-def show(u, n=1500, **kw):
-    try:
-        r=requests.get(u, headers=H, timeout=60, **kw)
-        print("==", u, r.status_code, r.headers.get("Content-Type"), len(r.content))
-        print(r.text[:n])
-        return r
-    except Exception as e:
-        print("== ERR", u, e)
-for ds in (7777, 7778, 7779, 7780):
-    r=show(f"https://data.gov.tw/api/v2/rest/dataset/{ds}", 2500)
-for u in ["https://tcmbdata.culture.tw/opendata/openapi/cultureMedia?search=飯店&page=0&size=2",
-          "https://tcmbdata.culture.tw/opendata/openapi/cultureObject?search=廟&page=0&size=2",
-          "https://tcmbdata.culture.tw/opendata/openapi/culturePlace?search=日月潭&page=0&size=2",
-          "https://tcmbdata.culture.tw/opendata/dataSet/culture?page=0&size=1"]:
-    show(u, 3000)
-r=requests.get("https://tcmbdata.culture.tw/v3/api-docs", headers=H, timeout=30)
-d=r.json()
-for p in ("/opendata/openapi/cultureMedia","/opendata/openapi/culturePlace"):
-    print(p, json.dumps(d["paths"][p], ensure_ascii=False)[:1500])
-print(json.dumps(d.get("components",{}).get("securitySchemes",{})))
-for u in ["https://www.pakutaso.com/search.html?offset=0&limit=all&search=%E3%83%9B%E3%83%86%E3%83%AB",
-          "https://www.photo-ac.com/main/search?q=%E3%83%9B%E3%83%86%E3%83%AB"]:
-    show(u, 300)
+for ds in (7777, 7780, 7778):
+    d=requests.get(f"https://data.gov.tw/api/v2/rest/dataset/{ds}", headers=H, timeout=60).json()
+    for x in d["result"]["distribution"]:
+        print(ds, x.get("resourceDescription"), x.get("resourceFormat"), x.get("resourceDownloadUrl"))
+d=requests.get("https://data.gov.tw/api/v2/rest/dataset/7777", headers=H, timeout=60).json()
+for x in d["result"]["distribution"]:
+    u=x.get("resourceDownloadUrl")
+    if (x.get("resourceFormat") or "").upper()=="JSON" or u.lower().endswith(".json"):
+        r=requests.get(u, headers=H, timeout=180)
+        print("GOT", u, r.status_code, len(r.content), r.headers.get("Content-Type"))
+        txt=r.content.decode("utf-8-sig", "replace")
+        print(txt[:2500])
+        try:
+            j=json.loads(txt)
+            def walk(o, depth=0):
+                if isinstance(o, dict):
+                    print("  "*depth, "dict keys:", list(o.keys())[:25])
+                    for k,v in list(o.items())[:3]:
+                        if isinstance(v,(dict,list)): walk(v, depth+1)
+                elif isinstance(o, list):
+                    print("  "*depth, "list len", len(o))
+                    if o: walk(o[0], depth+1)
+            walk(j)
+        except Exception as e:
+            print("json err", e)
+        break
