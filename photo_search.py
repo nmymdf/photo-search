@@ -26,10 +26,10 @@ import requests
 from PIL import Image, ImageOps, ImageDraw
 
 APP_NAME = "經典圖庫搜尋"
-VERSION = "v0.4.1"
+VERSION = "v0.5"
 AUTHOR = "作者:ArchieKUO"
 GOLD = "#C9A227"
-UA = {"User-Agent": "ClassicPhotoSearch/0.4.1 (personal desktop app)"}
+UA = {"User-Agent": "ClassicPhotoSearch/0.5 (personal desktop app)"}
 IMG_UA = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
                         "(KHTML, like Gecko) Chrome/130.0 Safari/537.36 ClassicPhotoSearch/0.4"}
 PER_FETCH = 16
@@ -647,17 +647,17 @@ class App:
 
         src = ctk.CTkFrame(r, fg_color="transparent")
         src.grid(row=2, column=0, sticky="ew", padx=24, pady=(12, 0))
-        ctk.CTkLabel(src, text="來源", font=F(16), text_color=SUB).pack(side="left", padx=(2, 10))
+        ctk.CTkLabel(src, text="只看", font=F(16), text_color=SUB).pack(side="left", padx=(2, 10))
         saved = self.settings.get("sources_v4")
         self.src_on, self.chips = {}, {}
-        for k, name, fn, need, default, extra, intl in SOURCES:
-            self.src_on[k] = (k in saved) if saved is not None else default
+        self.filter = None
+        for k, name, fn, need, default, extra, intl in [("all", "全部", None, 0, 0, 0, 0)] + SOURCES:
+            if k != "all":
+                self.src_on[k] = (k in saved) if saved is not None else default
             b = ctk.CTkButton(src, text=name, font=F(16), height=38, corner_radius=19,
-                              border_width=1, command=lambda k=k: self.toggle_src(k))
-            self.chips[k] = (b, extra)
-        self.more_btn = ctk.CTkButton(src, text="更多 ▾", font=F(16), height=38, width=80,
-                                      corner_radius=19, fg_color="transparent",
-                                      hover_color=PANEL2, text_color=SUB, command=self.toggle_more)
+                              border_width=1, command=lambda k=k: self.set_filter(k))
+            self.chips[k] = b
+        self.src_frame = src
         self.layout_chips()
 
         # 品質列＋右側按鈕
@@ -737,11 +737,11 @@ class App:
         self.b_dl = self.btn(inner, "下載", self.download_checked, primary=True, width=200)
         self.b_fav = self.btn(inner, "收藏", self.fav_checked, width=170)
         self.b_unfav = self.btn(inner, "移除收藏", self.unfav_checked, width=190)
-        for b in (self.b_none, self.b_dl, self.b_fav):
-            b.pack(side="left", padx=4)
+        for b in (self.b_dl, self.b_fav, self.b_none):
+            b.pack(side="right", padx=4)
         self.more_lbl = ctk.CTkLabel(inner, text="往下捲會自動載入更多", font=F(15), text_color=SUB)
-        self.more_lbl.pack(side="right", padx=10)
-        self.btn(inner, "開啟下載資料夾", self.open_folder, width=150).pack(side="right", padx=4)
+        self.more_lbl.pack(side="left", padx=(6, 12))
+        self.btn(inner, "開啟下載資料夾", self.open_folder, width=150).pack(side="left", padx=4)
 
         det = ctk.CTkFrame(r, fg_color="transparent")
         det.grid(row=7, column=0, sticky="ew", padx=24, pady=(8, 12))
@@ -756,30 +756,46 @@ class App:
         bb.grid(row=0, column=2)
         self.btn(bb, "出處頁", self.open_page, width=100).pack(side="left", padx=(4, 0))
 
+    def source_counts(self):
+        cnt = {}
+        for sk, _ in SECTIONS:
+            for it in self.items[sk]:
+                cnt[it.source] = cnt.get(it.source, 0) + 1
+        return cnt
+
     def layout_chips(self):
-        for k, (b, extra) in self.chips.items():
+        cnt = self.source_counts()
+        total = sum(cnt.values())
+        for k, b in self.chips.items():
             b.pack_forget()
-        self.more_btn.pack_forget()
-        for k, (b, extra) in self.chips.items():
-            if not extra or self.more_open or self.src_on[k]:
-                b.pack(side="left", padx=4)
-        self.more_btn.configure(text="收起 ▴" if self.more_open else "更多 ▾")
-        self.more_btn.pack(side="left", padx=4)
-        for k, (b, extra) in self.chips.items():
-            on = self.src_on[k]
-            b.configure(text=("✓ " + SRC_NAME[k]) if on else SRC_NAME[k],
-                        fg_color=CHIP_ON if on else PANEL,
-                        text_color=CHIP_ON_TX if on else SUB,
-                        border_color=CHIP_ON if on else LINE,
-                        hover_color=CHIP_ON if on else PANEL2)
+        for k, b in self.chips.items():
+            if k != "all" and not self.src_on.get(k):
+                continue
+            n = total if k == "all" else cnt.get(k, 0)
+            name = "全部" if k == "all" else SRC_NAME[k]
+            text = f"{name}　{n}" if self.seen else name
+            on = (self.filter is None) if k == "all" else (self.filter == k)
+            b.configure(text=text, font=F(16, bold=on),
+                        fg_color=ACCENT if on else PANEL,
+                        text_color="#FFFFFF" if on else TX,
+                        border_color=ACCENT if on else LINE,
+                        hover_color=ACCENT_HOVER if on else PANEL2)
+            b.pack(side="left", padx=4)
+
+    def set_filter(self, k):
+        new = None if k == "all" else k
+        if new == self.filter:
+            new = None
+        self.filter = new
+        self.layout_chips()
+        if self.mode == "search":
+            self.rebuild_all()
 
     def toggle_src(self, k):
-        self.src_on[k] = not self.src_on[k]
+        self.src_on[k] = self.src_vars[k].get()
+        if not self.src_on[k] and self.filter == k:
+            self.filter = None
         self.save_settings()
-        self.layout_chips()
-
-    def toggle_more(self):
-        self.more_open = not self.more_open
         self.layout_chips()
 
     def build_settings(self, parent):
@@ -797,8 +813,22 @@ class App:
         ctk.CTkLabel(f, text="台灣觀光署不用金鑰。其他圖庫：按「申請金鑰」→ 用 Email 註冊 → 複製金鑰貼到格子裡按 Enter",
                      font=F(15), text_color=SUB, anchor="w"
                      ).grid(row=1, column=0, columnspan=4, sticky="w", padx=24, pady=(0, 14))
+        sf = ctk.CTkFrame(f, fg_color="transparent")
+        sf.grid(row=2, column=0, columnspan=4, sticky="w", padx=24, pady=(0, 10))
+        ctk.CTkLabel(sf, text="要搜尋的來源", font=F(18, bold=True), text_color=TX
+                     ).pack(side="left", padx=(0, 16))
+        self.src_vars = {}
+        for k, name, *_ in SOURCES:
+            v = tk.BooleanVar(value=self.src_on.get(k, False))
+            self.src_vars[k] = v
+            ctk.CTkCheckBox(sf, text=name, variable=v, font=F(16), text_color=TX,
+                            checkbox_width=24, checkbox_height=24, corner_radius=6,
+                            fg_color=ACCENT, hover_color=ACCENT_HOVER, border_color=SUB,
+                            command=lambda k=k: self.toggle_src(k)).pack(side="left", padx=(0, 14))
+        ctk.CTkFrame(f, height=1, fg_color=LINE).grid(row=3, column=0, columnspan=4,
+                                                       sticky="ew", padx=24, pady=(4, 8))
         self.key_entries, self.key_status = {}, {}
-        row = 2
+        row = 4
         for k, name, url, hint in KEY_INFO:
             ctk.CTkLabel(f, text=name, font=F(18, bold=True), text_color=TX, width=110, anchor="w"
                          ).grid(row=row, column=0, sticky="w", padx=(24, 8), pady=(8, 0))
@@ -887,12 +917,12 @@ class App:
         self.scroll.grid(row=0, column=0, sticky="nsew")
         if mode == "favs":
             self.b_fav.pack_forget()
-            self.b_unfav.pack(side="left", padx=4, after=self.b_dl)
+            self.b_unfav.pack(side="right", padx=4, after=self.b_dl)
             self.b_view.configure(text="回到搜尋結果")
             self.more_lbl.configure(text="")
         else:
             self.b_unfav.pack_forget()
-            self.b_fav.pack(side="left", padx=4, after=self.b_dl)
+            self.b_fav.pack(side="right", padx=4, after=self.b_dl)
             self.b_view.configure(text=f"我的收藏（{len(self.favs)}）")
             self.more_lbl.configure(text="往下捲會自動載入更多")
         self.rebuild_all()
@@ -908,7 +938,11 @@ class App:
         return ["fav"] if self.mode == "favs" else [s for s, _ in SECTIONS]
 
     def section_items(self, sk):
-        return list(self.favs.values()) if sk == "fav" else self.items[sk]
+        if sk == "fav":
+            return list(self.favs.values())
+        if self.filter:
+            return [x for x in self.items[sk] if x.source == self.filter]
+        return self.items[sk]
 
     def rebuild_all(self):
         for sk, sec in self.sec.items():
@@ -953,7 +987,8 @@ class App:
             if self.mode == "favs":
                 msg = "收藏是空的。勾選圖片後按「收藏已勾選」，就會出現在這裡。"
             elif self.query_en or self.query_zh:
-                msg = "沒有找到，可以換個關鍵字，或多勾選幾個來源"
+                msg = (f"{SRC_NAME.get(self.filter, '')} 沒有找到照片，按「全部」看其他來源"
+                       if self.filter else "沒有找到，可以換個關鍵字，或到「設定」多勾選幾個來源")
             else:
                 msg = "輸入關鍵字，按 Enter 開始搜尋"
             self.empty_lbl.configure(text=msg)
@@ -1162,6 +1197,7 @@ class App:
         self.items = {s: [] for s, _ in SECTIONS}
         self.seen, self.fetch_page, self.exhausted = set(), 0, False
         self.current = None
+        self.filter = None
         self.update_dl()
         self.searching = True
         self.query_en = self.query_zh = ""
@@ -1279,6 +1315,7 @@ class App:
             for sk, _ in SECTIONS:
                 self.append_cards(sk)
             self.refresh_sections()
+        self.layout_chips()
         total = sum(len(v) for v in self.items.values())
         parts = [f"找到 {total} 張"] if total else ["沒有找到，可以換個關鍵字試試"]
         if nokey:
@@ -1617,6 +1654,11 @@ def smoke_run(root, app):
         root.after(1500, lambda: (shot("results"), step3()))
 
     def step3():
+        app.set_filter("unsplash")
+        root.after(1200, lambda: (shot("filtered"), step3b()))
+
+    def step3b():
+        app.set_filter("all")
         app.toggle_sites()
         app.scroll._parent_canvas.yview_moveto(0.45)
         root.after(1500, lambda: (shot("scrolled"), step4()))
