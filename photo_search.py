@@ -366,30 +366,34 @@ class App:
         head.grid(row=0, column=0, sticky="ew")
         head.grid_columnconfigure(1, weight=1)
         ctk.CTkLabel(head, text=APP_NAME, font=F(24, bold=True), text_color=TX
-                     ).grid(row=0, column=0, padx=24, pady=14, sticky="w")
+                     ).grid(row=0, column=0, padx=24, pady=10, sticky="w")
+        self.status = ctk.CTkLabel(head, text="輸入關鍵字後按 Enter 搜尋", font=F(15),
+                                   text_color=SUB, anchor="w")
+        self.status.grid(row=0, column=1, sticky="ew", padx=10)
         ctk.CTkLabel(head, text=f"{AUTHOR}　{VERSION}", font=F(17, italic=True),
                      text_color=GOLD).grid(row=0, column=2, padx=24, sticky="e")
 
-        # 搜尋
+        # 搜尋（中文、英文、搜尋鈕同一行）
         s = ctk.CTkFrame(r, fg_color="transparent")
-        s.grid(row=1, column=0, sticky="ew", padx=24, pady=(16, 0))
-        s.grid_columnconfigure(1, weight=1)
+        s.grid(row=1, column=0, sticky="ew", padx=24, pady=(14, 0))
+        s.grid_columnconfigure(0, weight=3)
+        s.grid_columnconfigure(2, weight=2)
         self.q_entry = ctk.CTkEntry(s, font=F(20), height=50, corner_radius=10,
                                     border_width=1, border_color=LINE, fg_color=PANEL,
                                     text_color=TX, placeholder_text="輸入中文或英文，例如：海邊飯店")
-        self.q_entry.grid(row=0, column=0, columnspan=2, sticky="ew")
+        self.q_entry.grid(row=0, column=0, sticky="ew")
         self.q_entry.bind("<Return>", lambda e: self.start_search(False))
+        ctk.CTkLabel(s, text="英文", font=F(16), text_color=SUB
+                     ).grid(row=0, column=1, padx=(14, 8))
+        self.en_entry = ctk.CTkEntry(s, font=F(18), height=50, corner_radius=10,
+                                     border_width=1, border_color=LINE, fg_color=PANEL,
+                                     text_color=TX, placeholder_text="自動翻譯，可修改後按 Enter")
+        self.en_entry.grid(row=0, column=2, sticky="ew")
+        self.en_entry.bind("<Return>", lambda e: self.start_search(True))
         ctk.CTkButton(s, text="搜尋", font=F(20, bold=True), height=50, width=120,
                       corner_radius=10, fg_color=ACCENT, hover_color=ACCENT_HOVER,
                       command=lambda: self.start_search(False)
-                      ).grid(row=0, column=2, padx=(12, 0))
-        ctk.CTkLabel(s, text="英文關鍵字", font=F(16), text_color=SUB
-                     ).grid(row=1, column=0, sticky="w", pady=(10, 0), padx=(2, 12))
-        self.en_entry = ctk.CTkEntry(s, font=F(16), height=38, corner_radius=8,
-                                     border_width=1, border_color=LINE, fg_color=PANEL,
-                                     text_color=TX, placeholder_text="會自動翻譯，也可以自己修改後按 Enter")
-        self.en_entry.grid(row=1, column=1, columnspan=2, sticky="ew", pady=(10, 0))
-        self.en_entry.bind("<Return>", lambda e: self.start_search(True))
+                      ).grid(row=0, column=3, padx=(12, 0))
 
         # 來源
         src = ctk.CTkFrame(r, fg_color="transparent")
@@ -451,7 +455,7 @@ class App:
 
         # 詳細資訊（一行）
         det = ctk.CTkFrame(r, fg_color="transparent")
-        det.grid(row=6, column=0, sticky="ew", padx=24, pady=(8, 0))
+        det.grid(row=6, column=0, sticky="ew", padx=24, pady=(8, 12))
         self.detail = det
         det.grid_columnconfigure(1, weight=1)
         self.det_title = ctk.CTkLabel(det, text="點一下圖片看資訊，按兩下看大圖",
@@ -466,9 +470,6 @@ class App:
         self.btn(bb, "下載這張", lambda: self.download_items([self.current]),
                  primary=True, width=120).pack(side="left", padx=(4, 0))
 
-        self.status = ctk.CTkLabel(r, text="輸入關鍵字後按 Enter 搜尋", font=F(15),
-                                   text_color=SUB, anchor="w")
-        self.status.grid(row=7, column=0, sticky="ew", padx=26, pady=(4, 8))
 
     def layout_chips(self):
         for k, (b, extra) in self.chips.items():
