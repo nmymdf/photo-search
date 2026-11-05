@@ -14,6 +14,10 @@ jobs:
         with:
           python-version: "3.12"
       - run: pip install requests pillow pyinstaller customtkinter
+      - name: Set screen size
+        continue-on-error: true
+        shell: pwsh
+        run: Set-DisplayResolution -Width 1920 -Height 1080 -Force
       - name: Test sources
         continue-on-error: true
         env:

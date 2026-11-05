@@ -250,7 +250,6 @@ SOURCES = [
     ("pexels", "Pexels", src_pexels, True, True, False),
     ("unsplash", "Unsplash", src_unsplash, True, True, False),
     ("pixabay", "Pixabay", src_pixabay, True, True, False),
-    ("openverse", "Openverse", src_openverse, False, False, True),
     ("commons", "維基共享資源", src_commons, False, False, True),
 ]
 if MOCK:
@@ -361,7 +360,7 @@ class App:
     def build(self):
         r = self.root
         r.grid_columnconfigure(0, weight=1)
-        r.grid_rowconfigure(5, weight=1)
+        r.grid_rowconfigure(4, weight=1)
 
         head = ctk.CTkFrame(r, fg_color=PANEL, corner_radius=0, height=64)
         head.grid(row=0, column=0, sticky="ew")
@@ -408,27 +407,15 @@ class App:
                                       hover_color=PANEL2, text_color=SUB,
                                       command=self.toggle_more)
         self.src_frame = src
-        self.btn(src, "設定", lambda: self.show_mode("settings"), width=96).pack(side="right")
+        self.btn(src, "設定", lambda: self.show_mode("settings"), width=86).pack(side="right")
+        self.btn(src, "開啟下載資料夾", self.open_folder, width=150).pack(side="right", padx=8)
+        self.b_view = self.btn(src, "我的收藏（0）", self.toggle_favs, width=150)
+        self.b_view.pack(side="right")
         self.layout_chips()
-
-        # 工具列
-        tb = ctk.CTkFrame(r, fg_color=PANEL, corner_radius=12, border_width=1, border_color=LINE)
-        tb.grid(row=3, column=0, sticky="ew", padx=24, pady=(14, 0))
-        self.toolbar = tb
-        inner = ctk.CTkFrame(tb, fg_color="transparent")
-        inner.pack(fill="x", padx=10, pady=8)
-        self.b_all = self.btn(inner, "全選本頁", self.check_page, width=110)
-        self.b_none = self.btn(inner, "全部取消", self.uncheck_all, width=110)
-        self.b_dl = self.btn(inner, "下載已勾選（0）", self.download_checked, primary=True, width=190)
-        self.b_fav = self.btn(inner, "收藏已勾選", self.fav_checked, width=120)
-        self.b_unfav = self.btn(inner, "移除已勾選收藏", self.unfav_checked, width=150)
-        for b in (self.b_all, self.b_none, self.b_dl, self.b_fav):
-            b.pack(side="left", padx=4)
-        self.btn(inner, "開啟下載資料夾", self.open_folder, width=150).pack(side="right", padx=4)
 
         # 內容區（圖片牆 / 設定）
         self.content = ctk.CTkFrame(r, fg_color="transparent")
-        self.content.grid(row=5, column=0, sticky="nsew", padx=18, pady=(10, 0))
+        self.content.grid(row=4, column=0, sticky="nsew", padx=18, pady=(10, 0))
         self.content.grid_columnconfigure(0, weight=1)
         self.content.grid_rowconfigure(0, weight=1)
         self.grid_frame = ctk.CTkFrame(self.content, fg_color="transparent")
@@ -441,39 +428,47 @@ class App:
         self.grid_frame.bind("<Configure>", self.on_resize)
         self.settings_frame = self.build_settings(self.content)
 
-        # 分頁
-        pg = ctk.CTkFrame(r, fg_color="transparent")
-        pg.grid(row=6, column=0, sticky="ew", padx=24, pady=(8, 0))
-        self.pager = pg
-        self.b_view = self.btn(pg, "看我的收藏", self.toggle_favs, width=170)
-        self.b_view.pack(side="left")
-        self.b_next = self.btn(pg, "下一頁", self.next_page, width=100)
-        self.b_next.pack(side="right")
-        self.page_lbl = ctk.CTkLabel(pg, text="", font=F(16), text_color=TX, width=200)
-        self.page_lbl.pack(side="right", padx=8)
-        self.b_prev = self.btn(pg, "上一頁", self.prev_page, width=100)
-        self.b_prev.pack(side="right")
+        # 動作列（勾選後的批次動作 + 換頁）
+        bar = ctk.CTkFrame(r, fg_color=PANEL, corner_radius=12, border_width=1, border_color=LINE)
+        bar.grid(row=5, column=0, sticky="ew", padx=24, pady=(8, 0))
+        self.toolbar = bar
+        inner = ctk.CTkFrame(bar, fg_color="transparent")
+        inner.pack(fill="x", padx=10, pady=8)
+        self.b_all = self.btn(inner, "全選本頁", self.check_page, width=110)
+        self.b_none = self.btn(inner, "全部取消", self.uncheck_all, width=110)
+        self.b_dl = self.btn(inner, "下載已勾選（0）", self.download_checked, primary=True, width=190)
+        self.b_fav = self.btn(inner, "收藏已勾選", self.fav_checked, width=120)
+        self.b_unfav = self.btn(inner, "移除已勾選收藏", self.unfav_checked, width=150)
+        for b in (self.b_all, self.b_none, self.b_dl, self.b_fav):
+            b.pack(side="left", padx=4)
+        self.b_next = self.btn(inner, "下一頁", self.next_page, width=96)
+        self.b_next.pack(side="right", padx=4)
+        self.page_lbl = ctk.CTkLabel(inner, text="", font=F(16), text_color=TX, width=170)
+        self.page_lbl.pack(side="right")
+        self.b_prev = self.btn(inner, "上一頁", self.prev_page, width=96)
+        self.b_prev.pack(side="right", padx=4)
+        self.pager = bar
 
-        # 詳細資訊
-        det = ctk.CTkFrame(r, fg_color=PANEL, corner_radius=12, border_width=1, border_color=LINE)
-        det.grid(row=7, column=0, sticky="ew", padx=24, pady=(10, 0))
+        # 詳細資訊（一行）
+        det = ctk.CTkFrame(r, fg_color="transparent")
+        det.grid(row=6, column=0, sticky="ew", padx=24, pady=(8, 0))
         self.detail = det
-        det.grid_columnconfigure(0, weight=1)
-        self.det_title = ctk.CTkLabel(det, text="點一下圖片看詳細資訊，按兩下看大圖",
+        det.grid_columnconfigure(1, weight=1)
+        self.det_title = ctk.CTkLabel(det, text="點一下圖片看資訊，按兩下看大圖",
                                       font=F(17, bold=True), text_color=TX, anchor="w")
-        self.det_title.grid(row=0, column=0, sticky="ew", padx=16, pady=(10, 0))
-        self.det_info = ctk.CTkLabel(det, text=" ", font=F(15), text_color=SUB, anchor="w")
-        self.det_info.grid(row=1, column=0, sticky="ew", padx=16, pady=(0, 10))
+        self.det_title.grid(row=0, column=0, sticky="w", padx=(4, 14))
+        self.det_info = ctk.CTkLabel(det, text="", font=F(15), text_color=SUB, anchor="w")
+        self.det_info.grid(row=0, column=1, sticky="ew")
         bb = ctk.CTkFrame(det, fg_color="transparent")
-        bb.grid(row=0, column=1, rowspan=2, padx=12)
+        bb.grid(row=0, column=2)
         self.btn(bb, "出處頁", self.open_page, width=90).pack(side="left", padx=4)
         self.btn(bb, "收藏", lambda: self.add_favs([self.current]), width=80).pack(side="left", padx=4)
         self.btn(bb, "下載這張", lambda: self.download_items([self.current]),
-                 primary=True, width=120).pack(side="left", padx=4)
+                 primary=True, width=120).pack(side="left", padx=(4, 0))
 
         self.status = ctk.CTkLabel(r, text="輸入關鍵字後按 Enter 搜尋", font=F(15),
                                    text_color=SUB, anchor="w")
-        self.status.grid(row=8, column=0, sticky="ew", padx=26, pady=(6, 10))
+        self.status.grid(row=7, column=0, sticky="ew", padx=26, pady=(4, 8))
 
     def layout_chips(self):
         for k, (b, extra) in self.chips.items():
@@ -513,14 +508,14 @@ class App:
         f.grid_rowconfigure(0, weight=1)
         f.grid_propagate(False)
         img = ctk.CTkLabel(f, text="", fg_color="transparent", cursor="hand2")
-        img.grid(row=0, column=0, sticky="nsew", padx=10, pady=(10, 6))
+        img.grid(row=0, column=0, sticky="nsew", padx=10, pady=(10, 4))
         var = tk.BooleanVar()
         cb = ctk.CTkCheckBox(f, text="", variable=var, font=F(17, bold=True), text_color=TX,
                              checkbox_width=26, checkbox_height=26, corner_radius=6,
                              fg_color=ACCENT, hover_color=ACCENT_HOVER, border_color=SUB)
         cb.grid(row=1, column=0, sticky="w", padx=12)
         meta = ctk.CTkFrame(f, fg_color="transparent")
-        meta.grid(row=2, column=0, sticky="ew", padx=12, pady=(4, 10))
+        meta.grid(row=2, column=0, sticky="ew", padx=12, pady=(2, 10))
         src = ctk.CTkLabel(meta, text="", font=F(15), text_color=SUB)
         src.pack(side="left")
         badge = ctk.CTkLabel(meta, text="", font=F(14), corner_radius=6, height=26)
@@ -537,7 +532,9 @@ class App:
         f = ctk.CTkFrame(parent, fg_color=PANEL, corner_radius=14, border_width=1, border_color=LINE)
         f.grid_columnconfigure(1, weight=1)
         ctk.CTkLabel(f, text="設定", font=F(22, bold=True), text_color=TX
-                     ).grid(row=0, column=0, columnspan=4, sticky="w", padx=24, pady=(20, 4))
+                     ).grid(row=0, column=0, columnspan=3, sticky="w", padx=24, pady=(20, 4))
+        self.btn(f, "回到搜尋", lambda: self.show_mode("search"), primary=True, width=130
+                 ).grid(row=0, column=3, sticky="e", padx=24, pady=(20, 4))
         ctk.CTkLabel(f, text="三個圖庫都可以免費申請金鑰：按「申請金鑰」→ 用 Email 註冊 → 複製金鑰貼到格子裡按 Enter",
                      font=F(15), text_color=SUB, anchor="w"
                      ).grid(row=1, column=0, columnspan=4, sticky="w", padx=24, pady=(0, 14))
@@ -572,9 +569,7 @@ class App:
         self.folder_lbl = ctk.CTkLabel(f, text=self.folder(), font=F(16), text_color=TX, anchor="w")
         self.folder_lbl.grid(row=row, column=1, sticky="ew")
         self.btn(f, "變更", self.choose_folder, width=110).grid(row=row, column=2, padx=10)
-        row += 1
-        self.btn(f, "回到搜尋", lambda: self.show_mode("search"), primary=True, width=140
-                 ).grid(row=row, column=0, columnspan=4, pady=(28, 24))
+        ctk.CTkLabel(f, text="", height=12).grid(row=row + 1, column=0)
         return f
 
     def paint_key_status(self, k, state=None):
@@ -628,10 +623,10 @@ class App:
         self.empty_lbl.grid_forget()
         if mode == "settings":
             self.settings_frame.grid(row=0, column=0, sticky="nsew", padx=6, pady=6)
-            for w in (self.toolbar, self.pager, self.detail):
+            for w in (self.toolbar, self.detail):
                 w.grid_remove()
         else:
-            for w in (self.toolbar, self.pager, self.detail):
+            for w in (self.toolbar, self.detail):
                 w.grid()
             self.grid_frame.grid(row=0, column=0, sticky="nsew")
             self.render()
@@ -663,7 +658,7 @@ class App:
         h = self.grid_frame.winfo_height() / s
         cw = max(160, w / 3 - 12)
         ch = max(170, h / 2 - 12)
-        self.card_size = (int(cw - 20), int(max(70, ch - 110)))
+        self.card_size = (int(cw - 20), int(max(80, ch - 98)))
         for c in self.cards:
             c["shown"] = None
         self.render()
@@ -698,12 +693,12 @@ class App:
         self.b_dl.configure(text=f"下載已勾選（{len(self.checked)}）")
         if self.mode == "favs":
             self.b_fav.pack_forget()
-            self.b_unfav.pack(side="left", padx=4)
+            self.b_unfav.pack(side="left", padx=4, after=self.b_dl)
             self.b_view.configure(text="回到搜尋結果")
         else:
             self.b_unfav.pack_forget()
             self.b_fav.pack(side="left", padx=4, after=self.b_dl)
-            self.b_view.configure(text=f"看我的收藏（{len(self.favs)}）")
+            self.b_view.configure(text=f"我的收藏（{len(self.favs)}）")
         if not page_items:
             msg = ("收藏是空的。勾選圖片後按「收藏已勾選」，就會出現在這裡。"
                    if self.mode == "favs" else
@@ -956,7 +951,7 @@ class App:
         if not it:
             return
         self.current = it
-        self.det_title.configure(text=short(it.title, 60))
+        self.det_title.configure(text=short(it.title, 30))
         info = [SRC_NAME.get(it.source, it.source)]
         if it.creator:
             info.append(f"攝影／作者：{it.creator}")
@@ -1176,7 +1171,7 @@ def main():
     root = ctk.CTk()
     app = App(root)
     if SMOKE:
-        root.geometry("1366x900+0+0")
+        root.geometry("1280x720+0+0")
         smoke_run(root, app)
     else:
         try:
