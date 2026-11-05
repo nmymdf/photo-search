@@ -579,7 +579,7 @@ class App:
                             "cards": [], "row": i * 3}
         self.empty_lbl = ctk.CTkLabel(self.content, text="輸入關鍵字，按 Enter 開始搜尋",
                                       font=F(18), text_color=SUB)
-        self.scroll.bind("<Configure>", self.on_resize)
+        self.content.bind("<Configure>", self.on_resize, add="+")
         self.settings_frame = self.build_settings(self.content)
 
         # 動作列
@@ -862,7 +862,7 @@ class App:
 
     def apply_resize(self):
         self._resize_job = None
-        w = self.scroll.winfo_width() / self.scale()
+        w = self.content.winfo_width() / self.scale() - 24
         tw = int(max(150, (w - 30) / COLS - 34))
         if abs(tw - self.thumb_w) < 4:
             return
