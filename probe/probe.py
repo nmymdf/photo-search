@@ -6,7 +6,7 @@ for name in ("Attraction", "Hotel", "Event"):
     print("GOT", name, r.status_code, len(r.content))
     z=zipfile.ZipFile(io.BytesIO(r.content))
     print("FILES", z.namelist()[:5])
-    raw=z.read(z.namelist()[0]).decode("utf-8-sig","replace")
+    fn=[n for n in z.namelist() if n.endswith("List.json")][0]; print("USE", fn); raw=z.read(fn).decode("utf-8-sig","replace")
     j=json.loads(raw)
     print("TOPKEYS", list(j.keys()) if isinstance(j,dict) else type(j))
     # find list of records
